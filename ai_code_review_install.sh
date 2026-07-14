@@ -6,8 +6,8 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-GITHUB_OWNER="OWNER"
-GITHUB_REPOSITORY="REPOSITORY"
+GITHUB_OWNER="richardbored"
+GITHUB_REPOSITORY="ai-code-review"
 GITHUB_BRANCH="main"
 SOURCE_FILE="ai_code_review.py"
 COMMAND_NAME="ai-code-review"

@@ -49,7 +49,7 @@ Recommended:
 Run:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPOSITORY/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/richardbored/ai-code-review/main/ai_code_review_install.sh | bash
 ```
 
 Restart your terminal and verify the installation with:
