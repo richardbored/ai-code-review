@@ -18,6 +18,43 @@ from typing import Any, List, Literal, Optional
 import urllib.request
 
 
+import json
+import urllib.request
+
+
+#######################
+#  CHECK FOR UPDATES  #
+# WILL IMPLEMENT SOON #
+#######################
+
+REPO = "richardbored/ai-code-review"
+VERSION = "v0.0.1"
+
+def check_for_updates():
+    url = f"https://api.github.com/repos/{REPO}/releases/latest"
+
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.load(response)
+    except Exception:
+        # Silently ignore network failures.
+        return
+
+    latest = data["tag_name"].lstrip("v")
+
+    if latest != VERSION:
+        print(f"""
+A new version of AI Code Review is available.
+
+Current: {VERSION}
+Latest : {latest}
+
+Update with:
+
+curl -fsSL https://raw.githubusercontent.com/{REPO}/main/ai_code_review_install.sh | bash
+""")
+
+
 ##################
 # FUNCTION TOOLS #
 ##################
@@ -52,7 +89,7 @@ def cprint(
         end: String appended after the printed text. Defaults to a newline.
     """
     style: str = Colour.BOLD if bold else ""
-    print(f"{style}{colour}{text}{Colour.RESET}", end=end)
+    print(f"{style}{colour}{text}{Colour.RESET}", end=end, flush=True)
 
 
 banner = dedent(r"""
@@ -575,10 +612,10 @@ def select_hardware_profile(total_memory_gb: float) -> tuple[str, int]:
 
     if total_memory_gb <= 24:
         return [
-            "qwen3.6:27b",
-            "qwen3.6:27b-mlx",
             "gemma4:12b-it-q4_K_M",
             "gemma4:12b-mlx",
+            "qwen3.6:27b",
+            "qwen3.6:27b-mlx",
         ], 20_000
 
     if total_memory_gb <= 32:
@@ -642,7 +679,7 @@ def optimise_review(
 
     token_ratio = input_tokens / max_tokens if max_tokens else 1.0
 
-    if total_memory_gb < 16:
+    if total_memory_gb <= 16:
         mode: ReviewMode = "hunks"
         reason = "Systems below 16 GB use hunk-level reviews only."
 
@@ -818,7 +855,7 @@ def create_config():
             branch_description = config.get("General", "branch_description", fallback="")
 
     if memory is None:
-        print("Welcome! Let's configure your assistant.\n")
+        cprint(text="Welcome! Let's configure your assistant.", colour=Colour.WHITE, bold=True)
         while True:
             memory = input("How much memory (in GB) does your computer have? ")
             try:
@@ -1421,8 +1458,8 @@ def calculate_total_review_time(total_hunk_reviews: int):
     est_length = (total_hunk_reviews + 7) * per_test_time
     minutes, seconds = divmod(est_length, 60)
     cprint(
-        text=f"- Est time to completion: {minutes}:{seconds:02d}",
-        colour=Colour.YELLOW,
+        text=f"Est time to completion: {minutes}:{seconds:02d}",
+        colour=Colour.WHITE,
         bold=True
     )
 
@@ -1456,9 +1493,11 @@ def review_hunks(chat: OllamaChat):
             continue
 
         for git_diff in GitDiff.all():
-            cprint(text=f"- Starting test {completed_reviews+1} of {total_hunk_reviews}... ", colour=Colour.WHITE, end="")
             if git_diff.active == 0:
                 continue
+
+            cprint(text=f"{completed_reviews+1} of {total_hunk_reviews}... ", colour=Colour.WHITE, end="")
+
             reviews = HunkReview.filter(
                 git_diff_id=git_diff.id,
                 type_of_review=setting.name,
@@ -1502,11 +1541,11 @@ def review_hunks(chat: OllamaChat):
 
             skipped_file = ""
             if reviews:
-                skipped_file = "(existing review was in cache)"
+                skipped_file = "(Review found in cache)"
 
             chat.clear()
             completed_reviews += 1
-            cprint(text="Completed! ", colour=Colour.GREEN, bold=True, end="")
+            cprint(text="Done! ", colour=Colour.GREEN, bold=True, end="")
             cprint(text=skipped_file, colour=Colour.WHITE, end="")
             cprint(text="", colour=Colour.WHITE)
     write_audit_event("info", message=f"Completed hunk review")
@@ -1519,7 +1558,8 @@ def review_file_diff(chat: OllamaChat):
         files[hunk.filename].append(hunk.diff)
 
     for filename, diff_list in files.items():
-        print(f"- Processing {filename}")
+        cprint(text=f"Reviewing file diff for ", colour=Colour.WHITE, end="")
+        cprint(text=f"{filename}... ", colour=Colour.WHITE, bold=True, end="")
 
         existing_review = ""
         reviews = HunkReview.filter(filename=filename)
@@ -1563,8 +1603,10 @@ def review_file_diff(chat: OllamaChat):
         )
 
         if len(FileDiffReview.filter(filename=filename)) > 0:
-            print(f"- {filename} review already exists in cache")
+            cprint(text="Done! ", colour=Colour.GREEN, bold=True, end="")
+            cprint(text="(Review found in cache)", colour=Colour.WHITE)
             return
+
         res = chat.send_message(message=prompt)
         chat.clear()
         try:
@@ -1588,11 +1630,12 @@ def review_file_diff(chat: OllamaChat):
             print("- Ollama returned a malformed JSON. Skipping file diff review...")
             write_audit_event("warning", message=f"Review for {filename} failed")
             pass
+        cprint(text="Done!", colour=Colour.GREEN, bold=True)
     write_audit_event("info", message=f"Completed file diff review")
 
 
 def review_whole_diff(chat: OllamaChat):
-    print("- Starting whole diff review...")
+    cprint(text="Reviewing whole diff...  ", colour=Colour.WHITE, end="")
     config = ConfigParser()
     config.read(CONFIG_FILE)
 
@@ -1667,11 +1710,12 @@ def review_whole_diff(chat: OllamaChat):
 
     max_token_amount = config.getint("General", "context")
     if estimate_token_count(prompt) > max_token_amount:
-        print("- Context too small for entire diff review")
+        print("\n- Context too small for entire diff review")
         return
     
     if WholeDiffReview.get(id=1) is not None:
-        print("- Whole diff review already exists in cache")
+        cprint(text="Done!  ", colour=Colour.GREEN, bold=True, end="")
+        cprint(text="(Review found in cache)", colour=Colour.WHITE)
         return
 
     res = chat.send_message(message=prompt)
@@ -1699,6 +1743,7 @@ def review_whole_diff(chat: OllamaChat):
         print("- Ollama returned a malformed JSON. Skipping whole diff review...")
         write_audit_event("warning", message=f"Review for whole diff failed")
         pass
+    cprint(text="Done!", colour=Colour.GREEN, bold=True)
 
 
 def review_whole_file(chat: OllamaChat):
@@ -1759,11 +1804,13 @@ def review_whole_file(chat: OllamaChat):
             return
 
         if ReviewFiles.filter(filename=filename) != []:
-            print(f"- {filename} review already exists in cache")
+            cprint(text=f"Reviewing {filename}... ", end="")
+            cprint(text=f"Done! ", colour=Colour.GREEN, bold=True, end="")
+            cprint(text="(Review found in cache)", colour=Colour.WHITE)
             continue
 
         cprint(
-            text=f"- Complete review of {filename}...  ",
+            text=f"Reviewing {filename}...  ",
             colour=Colour.WHITE,
             end=""
         )
@@ -1787,10 +1834,7 @@ def review_whole_file(chat: OllamaChat):
                     comment="None"
                 ).create()
 
-            cprint(
-                text=f"Done!",
-                colour=Colour.GREEN,
-            )
+            cprint(text=f"Done!", colour=Colour.GREEN, bold=True)
 
         except json.JSONDecodeError as e:
             print("- Ollama returned a malformed JSON. Skipping whole file review...")
@@ -1986,8 +2030,14 @@ def export_markdown_report():
     write_audit_event("warning", message=f"Exported markdown report")
 
 
+from time import perf_counter
+
+
+
 def main() -> None:
     """Entry point when run as a script."""
+    start = perf_counter()
+    check_for_updates()
     parser = argparse.ArgumentParser()
     parser = argparse.ArgumentParser(
         prog="ai-code-review",
@@ -2014,7 +2064,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     cprint(
-        text="Launching AI Code Assistant...",
+        text="Launching AI Code Review",
         colour=Colour.WHITE,
         bold=True,
     )
@@ -2101,15 +2151,19 @@ def main() -> None:
     chat = OllamaChat(models=config_models, num_ctx=context_size)
 
     if config.getboolean("General", "hunks_review", fallback=False):
+        cprint(text="\nStarting hunk review ", colour=Colour.YELLOW, bold=True)
         review_hunks(chat)
 
     if config.getboolean("General", "diff_files_review", fallback=False):
+        cprint(text="\nStarting file diff review ", colour=Colour.YELLOW, bold=True)
         review_file_diff(chat)
 
     if config.getboolean("General", "whole_diff_review", fallback=False):
+        cprint(text="\nStarting whole diff review ", colour=Colour.YELLOW, bold=True)
         review_whole_diff(chat)
 
     if config.getboolean("General", "review_whole_files", fallback=False):
+        cprint(text="\nStarting file review ", colour=Colour.YELLOW, bold=True)
         review_whole_file(chat)
 
     chat.unload()
@@ -2117,10 +2171,13 @@ def main() -> None:
     export_markdown_report()
 
     cprint(
-        text="- Code report finished!",
+        text="\nCode report finished!",
         colour=Colour.GREEN,
         bold=True,
     )
+    elapsed = perf_counter() - start
+
+    print(f"Took {elapsed:.2f} seconds")
 
 
 if __name__ == "__main__":
